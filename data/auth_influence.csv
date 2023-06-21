@@ -1,0 +1,4 @@
+first_appearance,wgs,app_any,app_proposal,app_solicit,app_outcome
+Outcome,0.37,0.71,0.7,0.14,NA
+Proposal,0.41,1,NA,0.32,1
+Solicitation,0.48,1,0.72,NA,1
