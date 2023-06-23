@@ -20,21 +20,21 @@ library(kableExtra)
 
 # For portability, you can easily alter the first part of the path
 # in case you are not using the repository as your working directory.
-path_prefix <- "data/"
+path_prefix <- ""
 
 
 # ---- Figure 1: Citation Count by Rank, Sources ----
 
-citation_rank <- read_csv(paste0(path_prefix, "citation_rank.csv"))
+citation_rank <- read_csv(paste0(path_prefix, "data/citation_rank.csv"))
 
 citation_rank %>%
   ggplot(aes(x = rank, y = cite_count)) + geom_point() +
   xlab("Rank") + ylab("Citation Count")
 
 
-# ---- Figure 6: Citations by Year, Top 12 WGS Sources ----
+# ---- Figure 6: Citations by Year, Top 12 Women's and Gender Studies Sources ----
 
-top_wgs_cites_by_year <- read_csv(paste0(path_prefix, "top_wgs_cites_by_year.csv"))
+top_wgs_cites_by_year <- read_csv(paste0(path_prefix, "data/top_wgs_cites_by_year.csv"))
 
 top_wgs_cites_by_year %>%
   mutate(source_cite = factor(source_cite, levels = unique(temp$source_cite))) %>%
@@ -52,12 +52,12 @@ top_wgs_cites_by_year %>%
 
 # ---- Table 1: Which Documents Introduce New Sources? ----
 
-source_influence <- read_csv(paste0(path_prefix, "source_influence.csv"))
+source_influence <- read_csv(paste0(path_prefix, "data/source_influence.csv"))
 
 options(knitr.kable.NA = "-")
 
 source_influence %>%
-  kbl(booktabs = TRUE, col.names = c("First Appearance", "WGS Source", "Anywhere", 
+  kbl(booktabs = TRUE, col.names = c("First Appearance", "Women's and Gender Studies Source", "Anywhere", 
                                      "Proposal", "Solicitation", "Outcome"),
       caption = "Which Documents Introduce New Sources?") %>% # need a better caption
   add_header_above(c(" " = 2, "Also Appears..." = 4)) %>%

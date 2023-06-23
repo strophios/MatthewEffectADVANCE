@@ -16,12 +16,12 @@
 #' - data/auth_influence.csv
 #' 
 #' Output (does not write to disk by default, simply displays the outputs): 
-#' - Figure 11: Citation Count by Rank, Authors
-#' - Figure 12: Estimates of the PA function and Node Fitness distribution, Author Network
-#' - Figure 13: Estimated contribution of PA for the Author Network, by year
-#' - Figure 14: Estimated contribution of NF for the Author Network, by year
-#' - Figure 15: Citations by rank for simulated and actual author network
-#' - Figure 16: Citations by Year, Top 12 WGS Authors
+#' - Figure C1: Citation Count by Rank, Authors
+#' - Figure C2: Estimates of the PA function and Node Fitness distribution, Author Network
+#' - Figure C3: Estimated contribution of PA for the Author Network, by year
+#' - Figure C4: Estimated contribution of NF for the Author Network, by year
+#' - Figure C5: Citations by rank for simulated and actual author network
+#' - Figure C6: Citations by Year, Top 12 WGS Authors
 #' - Table 2: Which Documents Introduce New Authors?
 #' 
 #' 
@@ -34,25 +34,28 @@ library(PAFit)
 
 # For portability, you can easily alter the first part of the path
 # in case you are not using the repository as your working directory.
-path_prefix <- "data/"
+path_prefix <- ""
 
 
-# ---- Figure 11: Citation Count by Rank, Authors ----
+# ---- Figure C1: Citation Count by Rank, Authors ----
 
-auth_citation_rank <- read_csv(paste0(path_prefix, "auth_citation_rank.csv"))
+auth_citation_rank <- read_csv(paste0(path_prefix, "data/auth_citation_rank.csv"))
 
 auth_citation_rank %>%
   ggplot(aes(x = rank, y = cite_count)) + geom_point() +
   xlab("Rank") + ylab("Citation Count")
 
 
-# ---- Figure 12: Estimates of the PA function and Node Fitness distribution, Author Network ----
+# ---- Figure C2: Estimates of the PA function and Node Fitness distribution, Author Network ----
 
-auth_cites_network <- read_csv(paste0(path_prefix, "auth_cites_network.csv"))
+auth_cites_network <- read_csv(paste0(path_prefix, "data/auth_cites_network.csv"))
 
 auth_cites_network <- auth_cites_network %>%
   as.matrix() %>%
   as.PAFit_net()
+
+# set the same seed as used in the paper
+set.seed(5678)
 
 auth_cites_network_stats <- get_statistics(auth_cites_network)
 
@@ -67,12 +70,12 @@ text(x = 0.0035, y = .73, label = "B", cex = 1.5)
 par(mfrow = c(1, 1))
 
 
-# ---- Figures 13 and 14: Estimated contribution of PA/NF for the Author Network, by year ----
+# ---- Figures C3 and C4: Estimated contribution of PA/NF for the Author Network, by year ----
 
 auth_cites_network_sim <- generate_simulated_data_from_estimated_model(auth_cites_network, 
                                                                        auth_cites_network_stats,
                                                                        auth_cites_network_model, 
-                                                                       M = 10)
+                                                                       M = 100)
 
 plot_contribution(auth_cites_network_sim, auth_cites_network_model, which_plot = "PA", 
                   legend_pos_x = .7)
@@ -81,11 +84,11 @@ plot_contribution(auth_cites_network_sim, auth_cites_network_model, which_plot =
                   legend_pos_x = .7)
 
 
-# ---- Figure 15: Citation count by rank for simulated (line) and actual (points) data, Author Network ----
+# ---- Figure C5: Citation count by rank for simulated (line) and actual (points) data, Author Network ----
 
 temp_net <- as_tibble(auth_cites_network$graph)
 
-source("scripts/sim_f_net.R")
+source(paste0(path_prefix, "scripts/sim_f_net.R"))
 
 node_hist <- map(unique(temp_net$cite_year), function(x) {
   existing_nodes <- temp_net %>% 
@@ -129,7 +132,7 @@ sims_to_plot <- left_join(sims_summary, temp_net %>%
                             mutate(rank = 1:nrow(.)), 
                           by = "rank") 
 
-sims_to_plot %>%
+sims_to_plot <- sims_to_plot %>%
   mutate(n = ifelse(is.na(n), 0, n)) %>% # set any missing N's to 0 (i.e. nodes with no, in real life, ties)
   mutate(rank_equal = if_else(node_id.x == node_id.y, TRUE, FALSE)) %>%
   mutate(rank_equal = if_else(is.na(rank_equal), FALSE, rank_equal)) %>%
@@ -153,17 +156,39 @@ sims_to_plot %>%
     
   })) %>%
   mutate(rank_approx = if_else(rank_approx, "Yes", "No")) %>%
-  mutate(rank_approx = factor(rank_approx, levels = c("Yes", "No"))) %>%
+  mutate(rank_approx = factor(rank_approx, levels = c("Yes", "No"))) 
+
+# not labeling the first two points cause they're obvious regardless
+x_arrows <- sims_to_plot[sims_to_plot$rank_approx == "Yes" &
+                           sims_to_plot$rank > 20, ]$rank
+x_arrow_ends <- sims_to_plot[sims_to_plot$rank_approx == "Yes" &
+                               sims_to_plot$rank > 20, ]$rank
+y_arrows <- sims_to_plot[sims_to_plot$rank_approx == "Yes" &
+                           sims_to_plot$rank > 20, ]$n + 10
+y_arrow_ends <- sims_to_plot[sims_to_plot$rank_approx == "Yes" &
+                               sims_to_plot$rank > 20, ]$n + 30
+
+sims_to_plot %>%
   ggplot(aes(x = rank)) + geom_line(aes(y = mean)) +
-  geom_errorbar(aes(ymin = lwr, ymax = upr), alpha = .2) + 
-  geom_point(aes(y = n, color = rank_approx)) + # , shape = rank_approx
-  ylab("Citations") + xlab("Rank") + labs(color = "Rank within 5 places of simulation") + 
-  theme(legend.position = c(.7, .8))
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = .3) + 
+  geom_point(aes(y = n, color = rank_approx, shape = rank_approx)) + 
+  ylab("Citations") + xlab("Rank") + labs(color = "Rank within 5 places of simulation", 
+                                          shape = "Rank within 5 places of simulation") + 
+  scale_shape_manual(values = c(8, 1)) +
+  theme(legend.position = c(.7, .8)) + 
+  annotate("segment", 
+           x = x_arrows, 
+           xend = x_arrow_ends,
+           y = y_arrows, 
+           yend = y_arrow_ends,
+           arrow = arrow(angle = 30,
+                         length = unit(2, "mm"), 
+                         ends = "first"), 
+           alpha = .8)
 
+# ---- Figure C6: Citations by Year, Top 12 WGS Authors ----
 
-# ---- Figure 16: Citations by Year, Top 12 WGS Authors ----
-
-auth_top_wgs_by_year <- read_csv(paste0(path_prefix, "auth_top_wgs_by_year.csv"))
+auth_top_wgs_by_year <- read_csv(paste0(path_prefix, "data/auth_top_wgs_by_year.csv"))
 
 auth_top_wgs_by_year %>%
   ggplot(aes(x = cite_year, y = cite_count)) + geom_line() +
@@ -180,14 +205,14 @@ auth_top_wgs_by_year %>%
   theme(legend.position = "bottom")
 
 
-# ---- Table 2: Which Documents Introduce New Authors? ----
+# ---- Table C1: Which Documents Introduce New Authors? ----
 
-auth_influence <- read_csv(paste0(path_prefix, "auth_influence.csv"))
+auth_influence <- read_csv(paste0(path_prefix, "data/auth_influence.csv"))
 
 options(knitr.kable.NA = "-")
 
 auth_influence %>%
-  kbl(booktabs = TRUE, col.names = c("First Appearance", "WGS Source", "Anywhere", 
+  kbl(booktabs = TRUE, col.names = c("First Appearance", "Women's and Gender Studies Source", "Anywhere", 
                                      "Proposal", "Solicitation", "Outcome"),
       caption = "Which Documents Introduce New Authors?") %>% # need a better caption
   add_header_above(c(" " = 2, "Also Appears..." = 4)) %>%

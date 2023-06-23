@@ -18,11 +18,11 @@ library(tidyverse)
 
 # For portability, you can easily alter the first part of the path
 # in case you are not using the repository as your working directory.
-path_prefix <- "data/"
+path_prefix <- ""
 
 # ---- Figure 7: Citations to Intersectional Sources, by Year ----
 
-intersectional_sources <- read_csv(paste0(path_prefix, "intersectional_sources.csv"))
+intersectional_sources <- read_csv(paste0(path_prefix, "data/intersectional_sources.csv"))
 
 intersectional_sources %>%
   ggplot(aes(x = cite_year, y = n, color = intersectional, linetype = intersectional)) + geom_line() + 
@@ -33,7 +33,7 @@ intersectional_sources %>%
 
 # ---- Figure 8: Citations to Intersectional Sources in Proposals ----
 
-intersectional_proposals <- read_csv(paste0(path_prefix, "intersectional_proposals.csv"))
+intersectional_proposals <- read_csv(paste0(path_prefix, "data/intersectional_proposals.csv"))
 
 intersectional_proposals %>% 
   ggplot(aes(x = cite_year, y = cite_count, color = inter_type, linetype = inter_type)) + geom_line() + 
@@ -44,7 +44,7 @@ intersectional_proposals %>%
 
 # ---- Figure 9: Citations to 2018 Proposals’ Intersectional Sources, by Year ----
 
-intersectional_proposal_sources <- read_csv(paste0(path_prefix, "intersectional_proposal_sources.csv"))
+intersectional_proposal_sources <- read_csv(paste0(path_prefix, "data/intersectional_proposal_sources.csv"))
 
 intersectional_proposal_sources %>%
   ggplot(aes(x = cite_year, y = int_count, color = int_type, linetype = int_type)) + geom_line() +

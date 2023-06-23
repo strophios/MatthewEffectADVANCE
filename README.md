@@ -18,8 +18,8 @@ The actual code for replicating the figures and tables are contained in the R sc
 - `generative_modeling.R` replicates figures 2 through 5, performing the underlying modeling and running the necessary simulations. For details on the methods, see the paper and/or the package PAFit and its documentation.
   - `sim_f_net.R` provides a supporting function used in running the simulations which form the basis of figure 5. 
 - `intersectionality.R` replicates figures 7 through 9. 
-- `appendix_auth_results.R` replicates figures 11 through 16. These are the results based on aggregating cites at the level of the author rather than the work, presented in appendix C of the paper.
-  - Note that figure 10 from appendix B is not replicated, being itself a copy of figure 2.
+- `appendix_auth_results.R` replicates figures C1 through C6 as well as table C1. These are the results based on aggregating cites at the level of the author rather than the work, presented in appendix C of the paper.
+  - Note that figure B1 from appendix B is not replicated, being itself a copy of figure 2.
 
 As written, these scripts do not write the replicated figures and tables to disk, but merely output them to R's default graphical output. If you would like to alter them to do so, see the documentation for ggplot2 (for the figures) and kableExtra (for the tables). 
 

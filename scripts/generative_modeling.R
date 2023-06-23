@@ -21,17 +21,20 @@ library(PAFit)
 
 # For portability, you can easily alter the first part of the path
 # in case you are not using the repository as your working directory.
-path_prefix <- "data/"
+path_prefix <- ""
 
 
 # ---- Load the Data and Run the Model----
 
-cites_item_network <- read_csv(paste0(path_prefix, "cites_item_network.csv"))
+cites_item_network <- read_csv(paste0(path_prefix, "data/cites_item_network.csv"))
 
 # From a dataframe to a PAFit network object
 cites_item_network <- cites_item_network %>% 
   as.matrix() %>%
   as.PAFit_net()
+
+# set the same seed as used in the paper
+set.seed(2884)
 
 # Create a summary statistics object which is used in model estimation
 # (Note: `joint_estimate()` will create this on its own by default; this
@@ -59,11 +62,11 @@ par(mfrow = c(1, 1))
 # First we generate the simulated data necessary for estimating uncertainty around 
 # the contribution statistics (for further explanation see appendix B and/or PAFit's 
 # documentation). 
-# Note: this takes roughly 50 seconds on an M1 Pro MacBook Pro.
+# Note: this takes roughly 10 minutes on an M1 Pro MacBook Pro.
 cites_item_network_sim <- generate_simulated_data_from_estimated_model(cites_item_network, 
                                                                        cites_item_network_stats,
                                                                        cites_item_network_model,
-                                                                       M = 10)
+                                                                       M = 100)
 
 # Preferential attachment estimated contributions
 plot_contribution(cites_item_network_sim, cites_item_network_model, which_plot = "PA", 
@@ -88,7 +91,7 @@ temp_net <- as_tibble(cites_item_network$graph)
 
 # Load a custom function which simulates final node degrees assuming
 # a purely node fitness driven network. 
-source("scripts/sim_f_net.R")
+source(paste0(path_prefix, "scripts/sim_f_net.R"))
 # Doing this  requires: 
 # - node fitnesses
 # - node history (when each node enters the network)
@@ -156,7 +159,7 @@ sims_to_plot <- left_join(sims_summary, temp_net %>%
                           by = "rank")
 
 # And then create the graph (Figure 5)
-sims_to_plot %>%
+sims_to_plot <- sims_to_plot %>%
   mutate(n = ifelse(is.na(n), 0, n)) %>% # set any missing N's to 0 (i.e. nodes with no, in real life, no ties)
   mutate(rank_equal = if_else(node_id.x == node_id.y, TRUE, FALSE)) %>%
   mutate(rank_equal = if_else(is.na(rank_equal), FALSE, rank_equal)) %>%
@@ -180,15 +183,38 @@ sims_to_plot %>%
     
   })) %>%
   mutate(rank_approx = if_else(rank_approx, "Yes", "No")) %>%
-  mutate(rank_approx = factor(rank_approx, levels = c("Yes", "No"))) %>%
+  mutate(rank_approx = factor(rank_approx, levels = c("Yes", "No"))) 
+
+
+# labeling the otherwise obscured points which match rank
+# excepting the first couple, cause they're easily legibly without
+x_arrows <- sims_to_plot[sims_to_plot$rank_approx == "Yes" &
+                           sims_to_plot$rank > 100, ]$rank
+x_arrow_ends <- sims_to_plot[sims_to_plot$rank_approx == "Yes" &
+                               sims_to_plot$rank > 100, ]$rank
+y_arrows <- sims_to_plot[sims_to_plot$rank_approx == "Yes" &
+                           sims_to_plot$rank > 100, ]$n + 5
+y_arrow_ends <- sims_to_plot[sims_to_plot$rank_approx == "Yes" &
+                               sims_to_plot$rank > 100, ]$n + 10
+
+sims_to_plot %>%
   ggplot(aes(x = rank)) + geom_line(aes(y = mean)) +
-  geom_errorbar(aes(ymin = lwr, ymax = upr), alpha = .2) + 
-  geom_point(aes(y = n, color = rank_approx)) +
-  ylab("Citations") + xlab("Rank") + labs(color = "Rank within 5 places of simulation") + 
-  theme(legend.position = c(.7, .8))
-
-
-
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = .3) + 
+  geom_point(aes(y = n, color = rank_approx, shape = rank_approx)) + 
+  ylab("Citations") + xlab("Rank") + 
+  labs(color = "Rank within 5 places of simulation",
+       shape = "Rank within 5 places of simulation") + 
+  scale_shape_manual(values = c(8, 1)) +
+  theme(legend.position = c(.7, .8)) + 
+  annotate("segment", 
+           x = x_arrows, 
+           xend = x_arrow_ends,
+           y = y_arrows, 
+           yend = y_arrow_ends,
+           arrow = arrow(angle = 30,
+                         length = unit(2, "mm"), 
+                         ends = "first"),
+           alpha = .8)
 
 
 
