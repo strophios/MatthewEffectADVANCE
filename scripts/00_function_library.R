@@ -4,6 +4,17 @@
 #' 
 #' 
 
+# ---- Custom Theme for ggplot ----
+custom_theme <- theme(axis.text.x = element_blank(), 
+                      axis.ticks.x = element_blank(), 
+                      text = element_text(family = "Times", size = 12), 
+                      panel.background = element_blank(), panel.border = element_blank(), 
+                      panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+                      axis.line = element_line(colour = "black"))
+
+theme_set(custom_theme)
+
+
 # ---- PAFit Modeling Pipeline ----
 #' Functions to go from an edge list to an estimated General Temporal Model fit with PAFit
 
@@ -407,7 +418,39 @@ est_contrib_uncertainty <- function(simulated_object, original_result) {
 
 
 # ---- Generating Simulated Data ----
-generate_simulated_data_from_estimated_model_parallel <- function(net_object, net_stat, result, M = 5) {
+generate_simulated_data_from_estimated_model_parallel <- function(net_object, net_stat, result, treatment_df = NULL, M = 5, workers = 8) {
+  #' Generate simulated data from a fitted model, but parallelized and implementing treatment
+  #' 
+  #' Uses a fitted model to generate a simulated network. All aspects of the network *not* parameterized
+  #' by the model are kept as close to the original as possible, while the remained are generated using 
+  #' the parameters of the fitted model. 
+  #' 
+  #' This is a replacement for the native `PAFit` function. There are two modifications: 
+  #' 
+  #' - Simulations can be run in parallel, based on the value passed to `workers`. 
+  #' - If passed a `treatment_df`, then the parameters used when generating the simulated 
+  #'   networks will reflect the estimated treatment effects from the source treated model.
+  #'   In other words, any treated nodes will have their NF and PA values adjusted on a 
+  #'   per-time-step basis, to match the different pre- and post-treatment estimates.
+  #' 
+  #' Additional details on the core function are available in the original `PAFit` documentation for
+  #' `generate_simulated_data_from_estimated_model()`.
+  #' 
+  #' @param net_object an object of class `PAFit_net` that contains the original network.
+  #' @param net_stat An object of class `PAFit_data` which contains summarized statistics of
+  #' the original network. This object is created by the function `get_statistics`.
+  #' @param result An object of class `Full_PAFit_result` which contains the fitted model 
+  #' obtained by applying the function `joint_estimate`.
+  #' @param treatment_df a dataframe containing the the treated node ids, estimates for their
+  #' pre- and post-treatment node fitness, and the time-step at which treatment occurred.
+  #' @param M integer. The number of simulated networks. Default value is `5`.
+  #' @param workers integeer. The number of parallel processes to run. Default value is `8`.
+  #' 
+  #' @returns Outputs a `Simulated_Data_From_Fitted_Model` object, a list identical to the output
+  #' of the original `PAFit` function, but with an additional entry `supplement_data`, a list 
+  #' containing a number of values used internally, potentially useful for debugging.
+  #' 
+  
   
   oopts <- options(scipen = 999)
   on.exit(options(oopts))
@@ -458,11 +501,10 @@ generate_simulated_data_from_estimated_model_parallel <- function(net_object, ne
   
   existing_node          <- vector(mode = "list",length = T)
   new_node_list          <- vector(mode = "list",length = T) # the new nodes appear at that time-step
-  const_graph_list       <- vector(mode = "list",length = T) #list of non-simulated edges or new nodes at each time-step
-  edge_from_new_node     <- vector(mode = "list",length = T)  # list of the fixed source node of new edges needed to draw
+  const_graph_list       <- vector(mode = "list",length = T) # list of non-simulated edges or new nodes at each time-step
+  edge_from_new_node     <- vector(mode = "list",length = T) # list of the fixed source node of new edges needed to draw
   num_of_new_edges_fixed <- rep(0,length = T) # total number of new edges needed to draw with fixed source node : only in directed case
   num_of_new_edges_free  <- rep(0,length = T) # total number of new edges needed to draw free both end
-  
   
   for (i in 1:T) {
     current_graph <- net[net[,3] == unique_time[i],,drop = FALSE]
@@ -504,14 +546,12 @@ generate_simulated_data_from_estimated_model_parallel <- function(net_object, ne
     }
     existing_node[[i]] <- as.numeric(sort(union(in_node_temp[in_node_temp !=  -1],
                                                 out_node_temp[out_node_temp != - 1])))
+    
     if (i > 1) {
       new_node_list[[i]] <- setdiff(existing_node[[i]],existing_node[[i - 1]])
       existing_node[[i]] <- union(existing_node[[i]],existing_node[[i - 1]])
-      
     }
   }
-  
-  
   
   deg_second_max <- max(result$estimate_result$k)
   
@@ -521,7 +561,7 @@ generate_simulated_data_from_estimated_model_parallel <- function(net_object, ne
   PA[as.character(result$estimate_result$k)] <- result$estimate_result$A
   
   f  <- result$estimate_result$f
-  
+  # return(f) # FOR DEBUGGING
   
   is_only_PA <- result$estimate_result$only_PA
   is_only_f  <- result$estimate_result$only_f
@@ -536,20 +576,21 @@ generate_simulated_data_from_estimated_model_parallel <- function(net_object, ne
   
   graph_list  <- vector(mode = "list", length = M)
   stats_list  <- vector(mode = "list", length = M)
-  result_list <- vector(mode = "list",length = M)
+  result_list <- vector(mode = "list", length = M)
   
   future_seed <- 1234
-  plan(multisession, workers = 8)
+  plan(multisession, workers = workers)
+  # plan(sequential)
   
   sims_list <- furrr::future_map(1:M, function(x) {
     
     out <- generate_simulated_data_from_estimated_model_inner(const_graph_list, existing_node, deg_second_max, edge_from_new_node, num_of_new_edges_free,  num_of_new_edges_fixed,  
                                                               new_node_list, binning_used, g_used, deg_thresh_used, p_used, stop_cond_used, net_type, is_directed, 
-                                                              PA, f, unique_time, T, is_only_PA, is_only_f)
+                                                              PA, f, unique_time, T, is_only_PA, is_only_f, treated_nodes = treatment_df)
     
   }, .options = furrr_options(seed = future_seed)) %>%
     list_rbind()
-  
+  # return(sims_list) # FOR DEBUGGING
   graph_list <- sims_list[["graph_obj"]]
   stats_list <- sims_list[["stats_obj"]]
   result_list <- sims_list[["result_obj"]]
@@ -574,7 +615,17 @@ generate_simulated_data_from_estimated_model_parallel <- function(net_object, ne
 
 generate_simulated_data_from_estimated_model_inner <- function(const_graph_list, existing_node, deg_second_max, edge_from_new_node, num_of_new_edges_free,  num_of_new_edges_fixed,  
                                                                new_node_list, binning_used, g_used, deg_thresh_used, p_used, stop_cond_used, net_type, is_directed, 
-                                                               PA, f, unique_time, T, is_only_PA, is_only_f) {
+                                                               PA, f, unique_time, T, is_only_PA, is_only_f, treated_nodes = NULL) {
+  #' Generates a single simulated network, then gets statistics and fits a model to it
+  #' 
+  #' This is, again, a modified version of a built-in `PAFit` function. There are two modifications:
+  #' 
+  #' - using `treated_nodes`, if provided, to dynamically adjust the node fitness values of treated nodes, according
+  #'   to when they were treated. 
+  #' - using using the appropriate model fitting procedure for the resulting simulation (i.e., `treat_PAFit_model()` 
+  #'   and `fit_treated_model()`) instead of `joint_estimate()`. 
+  #' 
+  #' For other details, see the original function. 
   
   graph         <- const_graph_list[[1]]
   in_node_temp  <- graph[, 2, drop = FALSE]
@@ -594,6 +645,14 @@ generate_simulated_data_from_estimated_model_inner <- function(const_graph_list,
   
   for (i in 2:T) {
     
+    if (!is_empty(treated_nodes)) { # if a df of treated nodes, w/ pre+post treat NF and PA values, is provided, then we check here to switch in the correct values for the current time step
+      treat_f <- treated_nodes %>%   
+        mutate(current_f = if_else(unique_time[i] > treated_year, f_post, f_pre)) %>%
+        pull(current_f)
+      names(treat_f) <- treated_nodes$pre_id
+      f[names(treat_f)] <- treat_f
+    }
+    
     if (dim(const_graph_list[[i]])[1] > 0) graph <- rbind(graph,const_graph_list[[i]])
     pa_value <- PA[as.character(deg_vec[as.character(existing_node[[i - 1]])])]
     if (sum(is.na(pa_value)) > 0) {
@@ -604,7 +663,7 @@ generate_simulated_data_from_estimated_model_inner <- function(const_graph_list,
     
     fit_value <- f[as.character(existing_node[[i - 1]])]
     
-    if (num_of_new_edges_free[i] > 0) {# sampling new edges whose both ends are free
+    if (num_of_new_edges_free[i] > 0) { # sampling new edges whose both ends are free
       in_node_new  <- sample(size = num_of_new_edges_free[i], replace = TRUE, x = existing_node[[i - 1]], 
                              prob = pa_value * fit_value /sum(pa_value * fit_value))  
       if (TRUE == is_directed) {
@@ -643,12 +702,18 @@ generate_simulated_data_from_estimated_model_inner <- function(const_graph_list,
       deg_vec[names(temp_vec)] <- deg_vec[names(temp_vec)] + temp_vec
     }
   }
+  # return(f_tracking) # FOR DEBUGGING
   
   graph
   one_net <- as.PAFit_net(graph, type = net_type)
-  stats_obj  <- get_statistics(one_net, binning = binning_used, g = g_used) 
+  stats_obj  <- get_statistics(one_net, binning = binning_used, g = g_used)
   
-  if (TRUE == is_only_PA) {
+  if (!is_empty(treated_nodes)) { 
+    # if we're doing simulations for a treated model, then we need to create the separate pre/post-treatment nodes
+    # and use the `fit_treated_model()` function, rather than the standard `joint_estimate()`
+    stats_obj <- treat_PAFit_model(stats_obj, treated_nodes) # note that we output the treated stats object, not the original
+    result_obj <- fit_treated_model(stats_obj, pretreatment_network = one_net)
+  } else if (TRUE == is_only_PA) {
     result_obj <- only_A_estimate(net_object = one_net, net_stat = stats_obj, p = p_used, 
                                   stop_cond = stop_cond_used)
   } else if (TRUE == is_only_f) {
@@ -727,11 +792,11 @@ create_treatment_df <- function(cite_df, id_col, treatment_col, pipeline_output,
   
 }
 
-treat_PAFit_model <- function(pipeline_output, treatment_df) {
+treat_PAFit_model <- function(stats_output, treatment_df) {
   #' A version
   #' 
-  #' @param pipeline_output a list output by `PAFit_model_pipeline`. The 
-  #' included `model_obj` can be `NULL`.
+  #' @param stats_output either a list output by `PAFit_model_pipeline` (for backwards 
+  #' compatibility) or just a `PAFit_data` object (i.e., the output of `get_statistics()`). 
   #' @param treatment_df a five column dataframe with the set of treated source, 
   #' the time of treatment, and pre/post-treatment ids and time step of treatment
   #' in the `PAFit` network.
@@ -742,27 +807,30 @@ treat_PAFit_model <- function(pipeline_output, treatment_df) {
   #' `treatment_df` as an additional item in the list. 
   #' 
   
-  # for convenience
-  stats_obj <- pipeline_output$stats_obj
-  node_ids <- pipeline_output$node_ids
+  # check which kind of input we have
+  if ("stats_obj" %in% names(stats_output)) { # then we have a pipeline_output object
+    stats_obj <- stats_output$stats_obj # and we grab the stats_obj out of it
+  } else {
+    stats_obj <- stats_output # otherwise we just rename the input to match
+  }
   
   # create the pre/post-treatment careers to use to update stats_obj$node_degree
   treated_careers <- pmap(list("pre_id" = treatment_df[["pre_id"]], 
-                               "post_id" = treatment_df[["post_id"]], 
-                               "treated_timestep" = treatment_df[["treated_timestep"]]), 
-                          function(pre_id, post_id, treated_timestep) {
-                            
-                            source_career <- stats_obj[["node_degree"]][, pre_id]
-                            
-                            pre_career <- c(source_career[1:treated_timestep], rep(-1, times = length(source_career) - treated_timestep))
-                            post_career <- c(rep(-1, times = treated_timestep - 1), source_career[treated_timestep:length(source_career)])
-                            
-                            out <- list(pre_career, post_career)
-                            names(out) <- c(pre_id, post_id)
-                            
-                            return(as_tibble(out))
-                            
-                          }) %>% 
+            "post_id" = treatment_df[["post_id"]], 
+            "treated_timestep" = treatment_df[["treated_timestep"]]), 
+       function(pre_id, post_id, treated_timestep) {
+         
+         source_career <- stats_obj[["node_degree"]][, pre_id]
+         
+         pre_career <- c(source_career[1:treated_timestep], rep(-1, times = length(source_career) - treated_timestep))
+         post_career <- c(rep(-1, times = treated_timestep - 1), source_career[treated_timestep:length(source_career)])
+         
+         out <- list(pre_career, post_career)
+         names(out) <- c(pre_id, post_id)
+         
+         return(as_tibble(out))
+         
+       }) %>% 
     list_cbind()
   
   # update node degree with new careers
@@ -791,7 +859,7 @@ treat_PAFit_model <- function(pipeline_output, treatment_df) {
   stats_obj[["N"]] <- treated_N
   stats_obj[["appear_time"]] <- treated_appear
   stats_obj[["treatment_df"]] <- treatment_df
-  
+
   return(stats_obj)  
   
 }
@@ -818,30 +886,36 @@ treat_PAFit_network <- function(PAFit_net, treatment_df) {
   
   treated_sub_graphs <- pmap(list(treatment_df$pre_id, treatment_df$post_id, treatment_df$treated_year), function(pre_id, post_id, treated_year) {
     
-    sub_graph <- network_graph[network_graph[, cited] == pre_id, ] # subset to the treated node
+    sub_graph <- network_graph[network_graph[, cited] == pre_id, , drop = FALSE] # subset to the treated node
+    sub_graph[sub_graph[, 3] > treated_year, cited] <- post_id # replace pre_id with post_id after the treated year
+    treat_year_new <- sub_graph[sub_graph[, cited] == pre_id &
+                                  sub_graph[, 3] == treated_year, , drop = FALSE] # create new subset of pre-treatment edges
     
-    if (!("matrix" %in% class(sub_graph))) { # again with this absolutely insane default matrix behavior of just having a single row become a vector
-      sub_graph <- matrix(c(sub_graph, sub_graph[1], post_id, treated_year), ncol = 3, byrow = TRUE, 
-                          dimnames = list(NULL, c(citing, cited, "cite_year")))
-      # print(sub_graph)
-      return(sub_graph)
-    }
-    
-    sub_graph[sub_graph[, cited] > treated_year, cited] <- post_id # replace pre_id with post_id after the treated year
-    treat_year_new <- sub_graph[sub_graph[, cited] == pre_id, ] # create new subset of pre-treatment edges
-    
-    if ("matrix" %in% class(treat_year_new)) { # so that we can have the post_id start with all the pre_id edges
-      treat_year_new[, c(cited, "cite_year")] <- rep(c(post_id, treated_year), each = nrow(treat_year_new))
-      sub_graph <- rbind(sub_graph, treat_year_new) # by binding them together
-    } else {
-      sub_graph <- rbind(sub_graph, c(treat_year_new[1], post_id, treated_year)) # for some reason, if we only get one row, then it becomes a vector instead of a matrix
-      # print(sub_graph)
-    }
+    treat_year_new[, c(cited, "cite_year")] <- rep(c(post_id, treated_year), each = nrow(treat_year_new))
+    sub_graph <- rbind(sub_graph, treat_year_new) # by binding them together
     
     return(sub_graph)
   })
   
   new_graph <- rbind(network_graph[!(network_graph[, cited] %in% treatment_df$pre_id), ], do.call(rbind, treated_sub_graphs))
+  
+  # And then we also replace the the pre-treatment ids as *citing* nodes, if there are any
+  citing_ids <- treatment_df$pre_id %in% new_graph[, citing]
+  if (any(citing_ids)) {
+    treated_citing <- treatment_df[citing_ids, ]
+    
+    treated_sub_graphs <- pmap(list(treated_citing$pre_id, treated_citing$post_id, treated_citing$treated_year), function(pre_id, post_id, treated_year) {
+      sub_graph <- new_graph[new_graph[, citing] == pre_id, , drop = FALSE] # subset to the treated (citing) node
+      sub_graph[sub_graph[, 3] > treated_year, citing] <- post_id # replace pre_id with post_id after the treated year
+      # I don't think I care about creating a year of overlap when we're talking about the treated node as a *citing* node
+      return(sub_graph)
+    })
+    
+    new_graph <- rbind(new_graph[!(new_graph[, citing] %in% treatment_df$pre_id), ], do.call(rbind, treated_sub_graphs))
+    
+  }
+  
+  new_graph <- new_graph[order(new_graph[, 3]), ]
   
   return(as.PAFit_net(new_graph))
 }
@@ -1213,44 +1287,155 @@ NF_prepost_comp <- function(bootstrap_f_summary) {
 }
 
 
-# NF_prepost_comp_orig <- function(bootstrap_f_summary) {
-#   
-#   out <- bootstrap_f_summary %>%
-#     mutate(diff = post - pre) %>%
-#     select(treated_id, stat, diff) %>%
-#     pivot_wider(names_from = stat, values_from = diff) %>%
-#     mutate(index = 1:n()) %>%
-#     mutate(upr_new = if_else(upr > lwr, upr, lwr), 
-#            lwr_new = if_else(upr > lwr, lwr, upr))
-#   
-#   return(out)
-# }
 
-
-sims_result_proc <- function(sims_obj) {
-  #' Fetch a subset of the data in a simulation result object
+sims_result_proc <- function(sims_obj, treatment_df) {
+  #' Fetch the subset of the data in a simulation result object relevant to treated nodes
   #' 
   #' 
   
+  
+  # Get the full distribution of fitnesses and their variances
   f <- do.call(rbind, map(sims_obj$result_list, \(x) x[["estimate_result"]][["f"]])) %>% as_tibble(.names_repair = "minimal")
   var_f <- do.call(rbind, map(sims_obj$result_list, \(x) x[["estimate_result"]][["var_f"]])) %>% as_tibble(.names_repair = "minimal")
+  
+  # Also get the estimates for alpha and its confidence interval
   alpha <- do.call(rbind, map(sims_obj$result_list, \(x) x[["estimate_result"]][["alpha"]])) %>% as_tibble(.names_repair = "minimal")
-  max_k <- do.call(rbind, map(sims_obj$result_list, \(x) max(x[["estimate_result"]][["k"]]))) %>% as_tibble(.name_repair = "minimal")
-  max_A <- do.call(rbind, map(sims_obj$result_list, \(x) max(x[["estimate_result"]][["A"]]))) %>% as_tibble(.name_repair = "minimal")
+  alpha_ci <- do.call(rbind, map(sims_obj$result_list, \(x) x[["estimate_result"]][["ci"]])) %>% as_tibble(.names_repair = "minimal")
+  # And stick them together
+  alpha <- cbind(alpha, alpha_ci)
+  colnames(alpha) <- c("estimate", "lower", "upper")
+  
+  # Also get the contributions
   fit_contribution <- do.call(rbind, map(sims_obj$result_list, \(x) x[["contribution"]][["fit_contribution"]])) %>% as_tibble(.names_repair = "minimal")
   PA_contribution <- do.call(rbind, map(sims_obj$result_list, \(x) x[["contribution"]][["PA_contribution"]])) %>% as_tibble(.names_repair = "minimal")
   mean_fit_contrib <- do.call(rbind, map(sims_obj$result_list, \(x) x[["contribution"]][["mean_fit_contrib"]])) %>% as_tibble(.names_repair = "minimal")
   mean_PA_contrib <- do.call(rbind, map(sims_obj$result_list, \(x) x[["contribution"]][["mean_PA_contrib"]])) %>% as_tibble(.names_repair = "minimal")
   
+  # Finally, we get just the degree info for the treated nodes
+  relevant_nodes <- c(treatment_df[["pre_id"]], treatment_df[["post_id"]])
+  pre_nodes <- treatment_df[["pre_id"]]
+  post_nodes <- treatment_df[["post_id"]]
+  career_comp <- do.call(rbind, imap(sims_obj$stats_list, function(x, y) {
+    
+    # How many edges does each node get, total?
+    pre_deg <- x[["z_j"]][pre_nodes]
+    post_deg <- x[["z_j"]][post_nodes] - pre_deg
+    
+    # How many years is the node actually around for?
+    pre_career <- colSums(x[["node_degree"]][, pre_nodes] > 0) 
+    post_career <- colSums(x[["node_degree"]][, post_nodes] > 0)
+
+    pre_career[pre_career == 0] <- pre_career[pre_career == 0] + 1
+    
+    out <- tibble("sim" = y, 
+                  "treated_id" = treatment_df[["treated_id"]],
+                  "pre_id" = treatment_df[["pre_id"]], 
+                  "post_id" = treatment_df[["post_id"]], 
+                  "pre_career" = pre_career, 
+                  "post_career" = post_career,
+                  "pre_treat_cites" = pre_deg, 
+                  "post_treat_cites" = post_deg, 
+                  "mean_pre_cites" = pre_deg/pre_career,
+                  "mean_post_cites" = post_deg/post_career)
+    out <- out %>% 
+      mutate(cite_treat_effect = mean_post_cites - mean_pre_cites)
+    return(out)
+    
+  }))
+  
   return(list("f" = f, 
               "var_f" = var_f, 
-              "max_k" = max_k,
-              "max_A" = max_A,
               "alpha" = alpha, 
               "fit_contribution" = fit_contribution, 
               "PA_contribution" = PA_contribution, 
               "mean_fit_contrib" = mean_fit_contrib, 
-              "mean_PA_contrib" = mean_PA_contrib))
+              "mean_PA_contrib" = mean_PA_contrib, 
+              "career_comp" = career_comp))
+  
+}
+
+cite_treat_effect <- function(stats_obj, treatment_df) {
+  
+  pre_nodes <- treatment_df[["pre_id"]]
+  post_nodes <- treatment_df[["post_id"]]
+  
+  # How many edges does each node get, total?
+  pre_deg <- stats_obj[["z_j"]][pre_nodes]
+  post_deg <- stats_obj[["z_j"]][post_nodes] - pre_deg
+  
+  # How many years is the node actually around for?
+  pre_career <- colSums(stats_obj[["node_degree"]][, pre_nodes] > 0) 
+  post_career <- colSums(stats_obj[["node_degree"]][, post_nodes] > 0)
+  
+  pre_career[pre_career == 0] <- pre_career[pre_career == 0] + 1
+  
+  out <- tibble("treated_id" = treatment_df[["treated_id"]],
+                "pre_id" = treatment_df[["pre_id"]], 
+                "post_id" = treatment_df[["post_id"]], 
+                "pre_career" = pre_career, 
+                "post_career" = post_career,
+                "pre_treat_cites" = pre_deg, 
+                "post_treat_cites" = post_deg, 
+                "mean_pre_cites" = pre_deg/pre_career,
+                "mean_post_cites" = post_deg/post_career)
+  out <- out %>% 
+    mutate(cite_treat_effect = mean_post_cites - mean_pre_cites)
+  
+  return(out)
+}
+
+
+summarize_treatment_effects <- function(sims_obj, sims_model, treatment_df) {
+  
+  sims_summary <- map(treatment_df$pre_id, function(pre_id) {
+    treated_id <- treatment_df[treatment_df[["pre_id"]] == pre_id, ]
+    post_id <- treated_id[["post_id"]]
+    cite_effect <- sims_obj[["career_comp"]][sims_obj[["career_comp"]][["pre_id"]] == pre_id, ]
+    f_pre <- sims_obj[["f"]][[as.character(pre_id)]]
+    f_post <- sims_obj[["f"]][[as.character(treated_id[["post_id"]])]]
+    
+    out <- tibble("treated_id" = treated_id[["treated_id"]], 
+                  "pre_id" = pre_id, 
+                  "post_id" = post_id, 
+                  "treat_pre" = sims_model[["estimate_result"]][["f"]][pre_id], 
+                  "treat_post" = sims_model[["estimate_result"]][["f"]][post_id],
+                  "pre" = list(f_pre), 
+                  "post" = list(f_post), 
+                  "cite_treat_effect" = list(cite_effect[["cite_treat_effect"]]),
+                  .rows = 1
+    )
+    return(out)
+    
+  }) %>%
+    list_rbind()
+  
+  effect_cor <- map_dbl(1:nrow(sims_obj$f), function(sim) { # this is getting the correlation between effects within each simulation
+    f_pre <- sims_obj[["f"]][sim, treatment_df[["pre_id"]]] %>% unlist()
+    f_post <- sims_obj[["f"]][sim, treatment_df[["post_id"]]] %>% unlist()
+    nf_effects <- f_post - f_pre
+    cite_treat_effects <- sims_obj[["career_comp"]][sims_obj[["career_comp"]][["sim"]] == sim, ][["cite_treat_effect"]]
+    
+    return(cor(nf_effects, cite_treat_effects))
+    
+  })
+  
+  out <- sims_summary %>%
+    mutate(treat_diff = treat_post - treat_pre, 
+           rand_diff = map2(pre, post, \(x, y) y - x)) %>%
+    mutate(lwr = map_dbl(rand_diff, \(x) quantile(x, .025)), 
+           upr = map_dbl(rand_diff, \(x) quantile(x, .975)), 
+           mean = map_dbl(rand_diff, mean), 
+           cite_lwr = map_dbl(cite_treat_effect, \(x) quantile(x, .025, na.rm = TRUE)), 
+           cite_upr = map_dbl(cite_treat_effect, \(x) quantile(x, .975, na.rm = TRUE)),
+           cite_median = map_dbl(cite_treat_effect, \(x) median(x, na.rm = TRUE)), 
+           index = 1:n())
+  
+  out$effect_cor <- list(effect_cor)
+  out$cor_lwr <- quantile(effect_cor, .025)
+  out$cor_upr <- quantile(effect_cor, .975)
+  out$cor_mean <- mean(effect_cor)
+  
+  return(out)
   
 }
 
@@ -1304,5 +1489,143 @@ f_summarize <- function(f_df, sims_model, treatment_df = NULL, node_ids = NULL) 
   return(f_summary)
   
 }
+
+# ---- Function for Creating Matched Data ----
+create_matched_data_for_graphing <- function(data, treatment = c("solicit", "intersectional"),
+                                             mode = c("exact", "coarse", "exact_one"), 
+                                             weighted = FALSE, raw = FALSE) {
+  
+  mode <- match.arg(mode)
+  treatment <- match.arg(treatment)
+  
+  id_col <- "target_col"
+  
+  if (treatment == "solicit") {
+    treat_col <- "solicit_ref"
+    data[["treat_year"]] <- data[["solicit_year"]]
+  } else if (treatment == "intersectional") {
+    treat_col <- "intersectional"
+    # and we also recreate centered_year for intersectional sources so that it works the same as for solicit refs (i.e., treatment = year 0)
+    data <- data %>%
+      mutate(centered_year = if_else(intersectional, cite_year - 2016, centered_year))
+    data[["treat_year"]] <- 2016
+  }
+  
+  colnames(data)[colnames(data) == id_col] <- "id_col"
+  colnames(data)[colnames(data) == treat_col] <- "treat_col"
+  
+  data_temp <- data %>%
+    arrange(id_col, cite_year) %>%
+    group_by(id_col) %>%
+    nest() %>%
+    mutate(data = map(data, function(x) { # create a new centered year which starts at 0 for everyone
+      x[["new_centered"]] <- 1:nrow(x) - 1
+      return(x)
+    })) %>%
+    unnest(cols = c(data)) %>%
+    ungroup() %>%
+    filter(!treat_col | (treat_col & cite_year == treat_year)) # drop all the solicit ref source-years which are not their year of solicit appearance
+  
+  # all three versions produce good results for the data we're considering here. in fact, the other two are actually *stronger* 
+  if (mode == "exact") {
+    data_match <- matchit(formula = treat_col ~ new_centered + cumsum_A, data = data_temp, # current option, leaves 10 unmatched, var ratios of 1.02, 0 std mean diff
+                          method = "exact", distance = "glm")
+  } else if (mode == "coarse") {
+    data_match <- matchit(formula = treat_col ~ new_centered + cumsum_A, data = data_temp, # none unmatched, var ratios of .93 and .84, small std mean diffs
+                          method = "cem", distance = "glm")
+  } else if (mode == "exact_one") {
+    data_match <- matchit(formula = treat_col ~ new_centered + cumsum_A, data = data_temp, # none unmatched (but it's only 1-to-1), var ratios  ~1, very small mean diffs
+                          method = "nearest", exact = "new_centered", distance = "glm")
+  }
+  
+  # quick diagnostic (since I haven't bothered delving into the quality of matching for every network separately)
+  match_summary <- summary(data_match)
+  
+  # for testing matching options
+  # return(match_summary)
+  
+  if ((match_summary[["nn"]][5, 2] / match_summary[["nn"]][4, 2]) >= .2) { # is proportion of dropped treated items too large?
+    warning(str_glue("Matching dropped more than 1/5 of treated units."))
+  } else if (any(match_summary$sum.matched[, "Var. Ratio"] > 1.5 | 
+                 match_summary$sum.matched[, "Var. Ratio"] < .5, na.rm = TRUE)) { # any Var.Ratios out of whack?
+    which_var_ratio <- rownames(match_summary[["sum.matched"]])[which(match_summary[["sum.matched"]][, "Var. Ratio"] > 1.5 | 
+                                                                        match_summary[["sum.matched"]][, "Var. Ratio"] < .5)]
+    warning(str_glue("Problem var ratio for {paste(which_var_ratio, collapse = ', ')} in the."))
+  }
+  
+  matched_data <- match.data(data_match) 
+  
+  treated_unit_classes <- matched_data %>% 
+    filter(treat_col) %>% 
+    select(id_col, subclass, weights)
+  
+  matched_data <- list_rbind(map(unique(matched_data[["subclass"]]), function(x) {
+    
+    matched_subclass <- matched_data[matched_data[["subclass"]] == x, ]
+    matched_subclass[["offset"]] <- matched_subclass[["cite_year"]]
+    subclass_data <- data %>% 
+      filter(id_col %in% matched_subclass[["id_col"]])
+    
+    subclass_data[["centered_year"]] <- subclass_data[["cite_year"]] - matched_subclass[["offset"]][match(subclass_data[["id_col"]], matched_subclass[["id_col"]])]
+    
+    # different versions of the matched (non-treated) rows, depending on the kind of matching (if exact or coarse, we need to summarize) and
+    # if we care about weights (if so, the summarizing needs to use weights)
+    if (mode %in% c("exact", "coarse")) {
+      if (weighted == TRUE) {
+        subclass_data[["weights"]] <- matched_subclass[match(subclass_data[["id_col"]], matched_subclass[["id_col"]]), ][["weights"]]
+      } else {
+        subclass_data[["weights"]] <- 1
+      }
+      if (raw == TRUE) {
+        subclass_data[["subclass"]] <- x
+        return(subclass_data)
+      }
+      subclass_data <- subclass_data %>%
+        group_by(centered_year, treat_col) %>%
+        nest() %>%
+        mutate(data = map(data, function(z) {
+          w <- z[["weights"]]
+          
+          return(tibble(#"total_cites" = weighted.mean(z[["total_cites"]], w = w),
+                        "n" = weighted.mean(z[["n"]], w = w), 
+                        "cumsum_cites" = weighted.mean(z[["cumsum_cites"]], w = w), 
+                        "node_fitness" = weighted.mean(z[["node_fitness"]], w = w), 
+                        "current_A" = weighted.mean(z[["current_A"]], w = w), 
+                        "cumsum_A" = weighted.mean(z[["cumsum_A"]], w = w)))
+        })) %>%
+        unnest(cols = c(data))
+      
+    } else if (mode == "exact_one") {
+      subclass_data <- subclass_data %>% 
+        select(id_col, total_cites, treat_col, centered_year, n, cumsum_cites,
+               node_fitness, current_A, cumsum_A)
+    }
+    subclass_data[["subclass"]] <- x
+    
+    return(subclass_data)
+    
+  }))
+  
+  matched_data <- matched_data %>%
+    # arrange(desc(subclass), id_col, centered_year) %>%
+    # arrange(subclass, id_col, centered_year) %>%
+    # distinct(id_col, centered_year, .keep_all = TRUE) %>%
+    mutate(post_center = factor(if_else(centered_year > 0, "Post", "Pre"), levels = c("Pre", "Post")))
+  
+  if (treatment == "solicit") {
+    colnames(matched_data)[colnames(matched_data) == "treat_col"] <- treat_col
+    matched_data <- matched_data %>%
+      mutate(solicit_ref = factor(if_else(solicit_ref, "Solicit Ref", "Other Source"), levels = c("Other Source", "Solicit Ref")))
+  } else if (treatment == "intersectional") {
+    colnames(matched_data)[colnames(matched_data) == "treat_col"] <- treat_col
+    matched_data <- matched_data #%>%
+    # mutate(intersectional = factor(if_else(intersectional, "Intersectional", "Other Source"), levels = c("Other Source", "Intersectional")))
+  }
+  
+  return(list("data" = matched_data, "subclasses" = treated_unit_classes))
+  
+}
+
+
 
 

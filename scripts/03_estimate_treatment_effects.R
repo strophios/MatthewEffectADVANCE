@@ -1,8 +1,9 @@
-#' Title: estimate_treatment_effect.R
+#' Title: 03_estimate_treatment_effects.R
 #' Author: Steven Lauterwasser
 #' 
 #' Summary: This script estimates the treatment effects and runs bootstrap re-simulations
-#' for confidence intervals. 
+#' for confidence intervals. Creating the bootstrap resimulations takes between 30 minutes
+#' and an hour on a well spec'd M1 MacBook Pro.
 #' 
 #' Input: 
 #' - `gen/model_list.rds`
@@ -18,7 +19,7 @@ library(tidyverse)
 library(PAFit)
 library(future)
 
-path_prefix <- "~/ADVANCE_postdoc/wgs_corpus/01_citational_inequality_paper/MatthewEffectADVANCE/" # *remember to change/omit this
+path_prefix <- "MatthewEffectADVANCE/" # Set path as appropriate
 
 source(paste0(path_prefix, "scripts/00_function_library.R"))
 
@@ -30,6 +31,10 @@ cite_df <- read_rds(paste0(path_prefix, "data/cite_df.rds"))
 cite_df <- add_PAFit_metadata(cite_df, model_pipeline_output = model_list, node_id_col = "target_col") %>%
   mutate(year_fac = as_factor(cite_year))
 
+#' Set up concurrency
+plan(multisession, workers = 8)
+future_seed <- 1234
+
 # ---- Treatment Effect: Solicit Reference ----
 n <-  1000 # number of bootstrap simulations for the confidence intervals
 
@@ -39,14 +44,15 @@ treatment_df <- create_treatment_df(cite_df = cite_df, pipeline_output = model_l
 treated_stats <- treat_PAFit_model(model_list, treatment_df)
 treated_model <- fit_treated_model(treated_stats, pretreatment_model = model_list[["model_obj"]])
 
-treated_net <- treat_PAFit_network(model_list[["network_obj"]], treatment_df)
-
 treated_model$cv_data <- model_list[["model_obj"]][["cv_data"]]
 treated_model$cv_result <- model_list[["model_obj"]][["cv_result"]]
 
+treatment_df$f_pre <- treated_model$estimate_result$f[treatment_df$pre_id]
+treatment_df$f_post <- treated_model$estimate_result$f[treatment_df$post_id]
+
 # treated model sims
-out <- generate_simulated_data_from_estimated_model_parallel(treated_net, treated_stats, treated_model, M = n)
-out <- sims_result_proc(out) # condense to save space
+out <- generate_simulated_data_from_estimated_model_parallel(model_list$network_obj, model_list$stats_obj, model_list$model_obj, treatment_df, M = n)
+out <- sims_result_proc(out, treatment_df) # condense to save space
 
 end <- proc.time()
 
@@ -66,14 +72,15 @@ treatment_df <- create_treatment_df(cite_df = cite_df, pipeline_output = model_l
 treated_stats <- treat_PAFit_model(model_list, treatment_df)
 treated_model <- fit_treated_model(treated_stats, pretreatment_model = model_list[["model_obj"]])
 
-treated_net <- treat_PAFit_network(model_list[["network_obj"]], treatment_df)
-
 treated_model$cv_data <- model_list[["model_obj"]][["cv_data"]]
 treated_model$cv_result <- model_list[["model_obj"]][["cv_result"]]
 
+treatment_df$f_pre <- treated_model$estimate_result$f[treatment_df$pre_id]
+treatment_df$f_post <- treated_model$estimate_result$f[treatment_df$post_id]
+
 # treated model sims
-out <- generate_simulated_data_from_estimated_model_parallel(treated_net, treated_stats, treated_model, M = n)
-out <- sims_result_proc(out) # condense to save space
+out <- generate_simulated_data_from_estimated_model_parallel(model_list$network_obj, model_list$stats_obj, model_list$model_obj, treatment_df, M = n)
+out <- sims_result_proc(out, treatment_df) # condense to save space
 
 end <- proc.time()
 

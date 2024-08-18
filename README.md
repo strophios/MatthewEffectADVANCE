@@ -1,33 +1,30 @@
 # MatthewEffectADVANCE
 
-This repository contains replication materials for the paper "Does an Equity-Minded Organization Produce Equity-Minded Science? The Matthew Effect in NSF ADVANCE Publications", by Steven Lauterwasser (Northeastern University), Laura K. Nelson (University of British Columbia), Jessica R. Gold (Northeastern University), and Kathrin Zippel (Free University of Berlin). 
+This repository contains replication materials for the paper "Talents for the Talented: Disrupting the Matthew Effect in an NSF Award Program", by Steven Lauterwasser (Northeastern University), Laura K. Nelson (University of British Columbia), Jessica R. Gold (Northeastern University), and Kathrin Zippel (Freie Universität Berlin). 
 
 
 # Contents
 
-This repo allows for the replication of all figures and tables from the paper, but does not contain the raw underlying data. Some of this data cannot be included because it straightforwardly is not public. Even that which is publicly available (or derived from publicly available sources), however, is not included. We have chosen to obfuscate the underlying data due to the current political climate around feminist work in organizations (especially universities), judging that this context makes the public presentation of a database of such work (and its authors) unwise. 
+This repo allows for the replication of all results from the paper, but does not contain the raw underlying data. Some of this data cannot be included because it straightforwardly is not public. Even that which is publicly available (or derived from publicly available sources) is not included, however. We have chosen to obfuscate the underlying data due to the current political climate around feminist work in organizations (especially universities), judging that this context makes the public presentation of a database of such work (and its authors) unwise. 
 
 We have provided two alternatives: 
 
-- `/data/outcome_mag_ids.csv` contains the Microsoft Academic Graph (MAG) IDs for the outcome documents which are the basis for most our data. We believe that this balances obfuscation and transparency, such that interested scholars can still investigate the underlying data. 
-- The remaining files in the `/data` directory are anonymized and/or aggregated "last step" data which is directly necessary for each of the replicated figures or tables. Generally this this is a CSV of the aggregated counts which a given figure or table displays. The only exception to this is the data for generative network modeling, for which the unlabeled raw edge lists are provided. 
+- `/data/outcome_mag_ids.csv` contains the Microsoft Academic Graph (MAG) IDs for the outcome documents which are the basis for most our data. We believe that this balances obfuscation and transparency, such that interested scholars can still investigate the underlying data. Note that, while the MAG may be defunct, [OpenAlex](https://openalex.org) is an open source alternative. It has incorporated much of the MAG's data using the original IDs. 
+- The remaining files in the `/data` directory are anonymized and/or aggregated "last step" data which is directly necessary for the results. Specifically, this includes an anonymized version of the author/item aggregated citations per year data and the raw edge lists for the generative network modeling. 
 
 The actual code for replicating the figures and tables are contained in the R script files in `/scripts`:
 
-- `citation_statistics.R` replicates figures 1 and 6, as well as table 1, i.e., the results based purely on basic summary aggregations from the underlying data.
-- `generative_modeling.R` replicates figures 2 through 5, performing the underlying modeling and running the necessary simulations. For details on the methods, see the paper and/or the package PAFit and its documentation.
-  - `sim_f_net.R` provides a supporting function used in running the simulations which form the basis of figure 5. 
-- `intersectionality.R` replicates figures 7 through 9. 
-- `appendix_auth_results.R` replicates figures C1 through C6 as well as table C1. These are the results based on aggregating cites at the level of the author rather than the work, presented in appendix C of the paper.
-  - Note that figure B1 from appendix B is not replicated, being itself a copy of figure 2.
+- `00_function_library.R` holds the custom functions used by the rest of the replication code.
+- `01_generative_modeling.R` performs the generative network modeling that provides the basis for the remaining results. Also produces figure 6.1.
+- `02_cumcite_treatment_comps.R` replicates figure 6.2, the comparison of cumulative citations over time for treated vs. untreated authors.
+- `03_estimate_treatment_effects.R` estimates the node fitness treatment effects and runs bootstrap simulations to assess uncertainty.
+- `04_treatment_effect_plots.R` summarizes the results of the effect estimates (on both node fitness and citations per year) and bootstrap simulations. Also replicates figures 6.3 and 6.4.
+- `05_cite_effect_plots.R` replicates all figures from appendix D.
+- `06_item_network_results.R` replicates all figures from appendix E.
 
-As written, these scripts do not write the replicated figures and tables to disk, but merely output them to R's default graphical output. If you would like to alter them to do so, see the documentation for ggplot2 (for the figures) and kableExtra (for the tables). 
+The results for some of the more computationally intensive steps (i.e., the modeling or bootstrap simulations) are written to disk (`/gen` by default). This includes some or all of the output from scripts `01_generative_modeling.R`, `03_estimate_treatment_effects.R`, and `06_item_network_results.R`. All remaining outputs (including all figures) are not saved by default. 
 
-Each of these scripts can be run independently (except for `sim_f_net.R`), requiring only an installation of R and the following libraries:
-
-- tidyverse
-- kableExtra
-- PAFit
+The required libraries and inter-script dependencies should be made clear within each individual script.
 
 
 

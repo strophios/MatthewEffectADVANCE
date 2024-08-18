@@ -1,12 +1,13 @@
-#' Title: generative_modeling.R
+#' Title: 01_generative_modeling.R
 #' Author: Steven Lauterwasser
 #' 
 #' Summary: This script performs the generative network modeling
-#' with `PAFit` on which the modeling results are based. 
+#' with `PAFit` on which the modeling results are based. It also 
+#' replicates figure 6.1.
 #' 
 #' Note: This does perform the simulations needed to assess the 
 #' PA and NF contributions, but it does not do any of the treatment
-#' effect estimation or simulation. That is in `estimate_treatment_effects.R`.
+#' effect estimation or simulation. That is in `03_estimate_treatment_effects.R`.
 #' 
 #' Input: 
 #' - `data/edge_list_df.rds`
@@ -26,23 +27,12 @@
 #' inputs for later results, both `model_list` and `simulation_obj` are written to disk
 #' by default (in `gen/`). `contrib_summary` and the plotted figure are not.
 #' 
-#' - Figure 1: Estimates of the preferential attachment function and node fitness 
-#' distribution. 
-#' 
-#' Full caption: Estimates of the preferential attachment function and node fitness 
-#' distribution. (**A**) Estimated values of $A_k$ for every node degree $k$, log-log 
-#' scale. The shaded band shows a two standard deviation confidence interval. The 
-#' values of $A_k$ increase almost monotonically with node degree, consistent with 
-#' preferential attachment. (**B**) The distribution of estimated node fitnesses. The 
-#' relatively heavy tails of the distribution demonstrate that fitness has some influence 
-#' on network growth. 
-#' Source: Corpus of ADVANCE outcome publications, collected by the authors.
-#' 
 
 library(tidyverse)
 library(PAFit)
+library(future)
 
-path_prefix <- "~/ADVANCE_postdoc/wgs_corpus/01_citational_inequality_paper/MatthewEffectADVANCE/" # *remember to change/omit this
+path_prefix <- "MatthewEffectADVANCE/" # Set path as appropriate
 source(paste0(path_prefix, "scripts/00_function_library.R"))
 
 edge_list_df <- read_rds(paste0(path_prefix, "data/edge_list_df.rds"))
@@ -54,15 +44,17 @@ model_list <- PAFit_model_pipeline(edge_list_df, "source_col", "target_col", "ci
 
 write_rds(model_list, paste0(path_prefix, "gen/model_list.rds")) # Write to disk
 
-# For the paper, we ran 1000 simulations. This takes nearly four hours on an M1 Pro MacBook Pro,
-# so, for convenience, this replication script defaults to just 10, which takes about 3 minutes
+#' For the paper, we ran 1000 simulations. This takes a little under 45 minutes on an M1 Pro MacBook Pro
+#' running 8 simulations in parallel (`workers = 8` below). Thus, for convenience this replication script 
+#' defaults to just 10, which takes a little under 30 seconds on the same machine.
 M <- 10
 
 start <- proc.time()
-simulation_obj <- generate_simulated_data_from_estimated_model(model_list[["network_obj"]], 
-                                                               model_list[["stats_obj"]], 
-                                                               model_list[["model_obj"]], 
-                                                               M = M)
+simulation_obj <- generate_simulated_data_from_estimated_model_parallel(model_list[["network_obj"]], 
+                                                                        model_list[["stats_obj"]], 
+                                                                        model_list[["model_obj"]], 
+                                                                        M = M, 
+                                                                        workers = 8)
 
 # write to disk
 write_rds(simulation_obj, paste0(path_prefix, "gen/simulation_obj.rds")) # Write to disk
